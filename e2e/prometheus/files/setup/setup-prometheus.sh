@@ -27,11 +27,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TIMEOUT="120s"
 NAMESPACE=prometheus
 TMPDIR=$(mktemp -d)
-LATEST=$(curl -s https://api.github.com/repos/prometheus-operator/prometheus-operator/releases/latest | jq -cr .tag_name)
+GITHUB_API_CURL_ARGS=()
+if [ -n "$GITHUB_TOKEN" ]; then
+  GITHUB_API_CURL_ARGS=(-H "Authorization: Bearer $GITHUB_TOKEN")
+fi
+LATEST=$(curl -s "${GITHUB_API_CURL_ARGS[@]}" https://api.github.com/repos/prometheus-operator/prometheus-operator/releases/latest | jq -cr .tag_name)
+if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+  echo "Failed to resolve latest prometheus-operator release tag" >&2
+  exit 1
+fi
 
 kubectl create ns $NAMESPACE
-curl -s "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/refs/tags/$LATEST/kustomization.yaml" > "$TMPDIR/kustomization.yaml"
-curl -s "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/refs/tags/$LATEST/bundle.yaml" > "$TMPDIR/bundle.yaml"
+curl -sf "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/refs/tags/$LATEST/kustomization.yaml" > "$TMPDIR/kustomization.yaml"
+curl -sf "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/refs/tags/$LATEST/bundle.yaml" > "$TMPDIR/bundle.yaml"
 (cd $TMPDIR && kustomize edit set namespace $NAMESPACE) && kubectl create -k "$TMPDIR"
 
 kubectl wait --for=condition=available deployment/prometheus-operator -n $NAMESPACE --timeout=$TIMEOUT
